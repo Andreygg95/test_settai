@@ -1,114 +1,115 @@
-﻿using System;
+﻿using System.Collections;
 using UnityEngine;
 using System.Collections.Generic;
 using Sirenix.OdinInspector;
 
 public class Scenario : MonoBehaviour
 {
-    private Transform Target => target == null ? target = transform : target; 
+    private Transform Target => target == null ? target = transform : target;
 
-    [SerializeField]
-    private Transform target;
+    [SerializeField] private Transform target;
 
-    [SerializeField]
-    [ListDrawerSettings(Expanded = true)]
-    private List<SequenceData> sequences = new List<SequenceData>();
+    [SerializeField] [ListDrawerSettings(Expanded = true)]
+    private List<SequenceData> sequences = new();
+
+    [SerializeField] private bool startOnAwake = true;
 
     private List<Material> materials;
-    
-    private bool isRunning; 
 
-    private void Awake()
-    {
-        var renderers = Target.GetComponentsInChildren<Renderer>();
+    private bool isRunning;
 
-        materials = MaterialManager.CopySharedMaterials(Target);
-    }
+    private void Awake() => materials = MaterialManager.CopySharedMaterials(Target);
 
     private void Start()
     {
-        StartSequences();
+        if (startOnAwake)
+            StartSequences();
     }
-    
+
     [Button]
-    public void StartSequences()
+
+    public void StartSequences() => StartCoroutine(StartSequencesAsync());
+
+    private IEnumerator StartSequencesAsync()
     {
-        if (isRunning) return;
+        if (isRunning)
+            yield break;
 
         isRunning = true;
-        StartCoroutine(RunSequences());
-    }
 
-    private System.Collections.IEnumerator RunSequences()
-    {
+        Coroutine previousCoroutine = null;
+
         foreach (var sequence in sequences)
         {
-            yield return ExecuteSequence(sequence);
+            yield return previousCoroutine;
+
+            Coroutine coroutine = null;
+
+            switch (sequence.sequenceType)
+            {
+                case SequenceType.Move:
+                    coroutine = StartCoroutine(MoveSequence(sequence));
+                    break;
+
+                case SequenceType.Rotate:
+                    coroutine = StartCoroutine(RotateSequence(sequence));
+                    break;
+
+                case SequenceType.ChangeColor:
+                    coroutine = StartCoroutine(ChangeColorSequence(sequence));
+                    break;
+            }
+
+            if (!sequence.simultaneousWithNext)
+                previousCoroutine = coroutine;
         }
 
         isRunning = false;
     }
 
-    private System.Collections.IEnumerator ExecuteSequence(SequenceData sequence)
+    private IEnumerator MoveSequence(SequenceData sequence)
     {
         float elapsedTime = 0f;
-
-        switch (sequence.sequenceType)
-        {
-            case SequenceType.Move:
-                yield return MoveSequence(sequence, elapsedTime);
-                break;
-
-            case SequenceType.Rotate:
-                yield return RotateSequence(sequence, elapsedTime);
-                break;
-
-            case SequenceType.ChangeColor:
-                yield return ChangeColorSequence(sequence, elapsedTime);
-                break;
-        }
-    }
-
-    private System.Collections.IEnumerator MoveSequence(SequenceData sequence, float elapsedTime)
-    {
-        Vector3 startPosition = target.position;
-        Vector3 targetPosition = startPosition + sequence.vectorValue;
+        Vector3 startPosition = Target.position;
+        Vector3 targetPosition = sequence.vectorValue;
 
         while (elapsedTime < sequence.duration)
         {
             float t = elapsedTime / sequence.duration;
-            target.position = Vector3.Lerp(startPosition, targetPosition, t);
+            Target.position = Vector3.Lerp(startPosition, targetPosition, t);
             elapsedTime += Time.deltaTime;
             yield return null;
         }
 
-        target.position = targetPosition;
+        Target.position = targetPosition;
     }
 
-    private System.Collections.IEnumerator RotateSequence(SequenceData sequence, float elapsedTime)
+    private IEnumerator RotateSequence(SequenceData sequence)
     {
-        Quaternion startRotation = target.rotation;
+        float elapsedTime = 0f;
+        Quaternion startRotation = Target.rotation;
         Quaternion targetRotation = Quaternion.Euler(sequence.vectorValue);
 
         while (elapsedTime < sequence.duration)
         {
             float t = elapsedTime / sequence.duration;
-            target.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
+            Target.rotation = Quaternion.Lerp(startRotation, targetRotation, t);
             elapsedTime += Time.deltaTime;
             yield return null;
         }
 
-        target.rotation = targetRotation;
+        Target.rotation = targetRotation;
     }
 
-    private System.Collections.IEnumerator ChangeColorSequence(SequenceData sequence, float elapsedTime)
+    private IEnumerator ChangeColorSequence(SequenceData sequence)
     {
         List<Color> startColors = new List<Color>();
-        
+
         foreach (Material material in materials)
             startColors.Add(material.color);
 
         Color targetColor = sequence.colorValue;
+        float elapsedTime = 0f;
 
         while (elapsedTime < sequence.duration)
         {
@@ -118,44 +119,10 @@ public class Scenario : MonoBehaviour
                 materials[i].color = Color.Lerp(startColors[i], targetColor, t);
 
             elapsedTime += Time.deltaTime;
-            
             yield return null;
         }
 
         for (int i = 0; i < materials.Count; i++)
             materials[i].color = targetColor;
-    }
-}
-
-
-public enum SequenceType
-{
-    Move,
-    Rotate,
-    ChangeColor
-}
-
-[System.Serializable]
-public class SequenceData
-{
-    public SequenceType sequenceType;
-    
-    [ShowIf("IsMoveSequence")]
-    public Vector3 vectorValue;
-    
-    [ShowIf("IsColorSequence")]
-    public Color colorValue;
-
-    public float duration = 1f;
-    
-    private bool IsMoveSequence()
-    {
-        return sequenceType == SequenceType.Move ||
-               sequenceType == SequenceType.Rotate;
-    }
-
-    private bool IsColorSequence()
-    {
-        return sequenceType == SequenceType.ChangeColor;
     }
 }
